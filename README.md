@@ -7,7 +7,7 @@ module comes from a solved puzzle in `../coding_exercise`.
 |---|---|---|
 | `blobs` | number of islands | Find connected blobs in a 2D grid or mask (4- or 8-connected) |
 | `clusters` | track merge | Merge "same object" detection pairs into objects (union-find) |
-| `gating` | merge intervals | *planned* |
+| `gating` | merge intervals / gating | Group (center, ±uncertainty) tracks whose gates overlap; plain interval merge |
 | `windows` | longest substring | *planned* |
 | `kalman` | — | *planned* |
 
@@ -16,9 +16,12 @@ module comes from a solved puzzle in `../coding_exercise`.
 ```python
 from fusion_kit.blobs import count_blobs, find_blobs
 from fusion_kit.clusters import cluster, count_clusters
+from fusion_kit.gating import gate_tracks, merge_intervals
 
 count_blobs(mask, connectivity=8, is_foreground=lambda v: v >= 128)
 cluster(6, [[4, 0], [2, 5]])   # [{0, 4}, {1}, {2, 5}, {3}]
+gate_tracks([(10, 1), (2, 1), (3, 0.5)])
+# [Group(lo=1, hi=3.5, members=[1, 2]), Group(lo=9, hi=11, members=[0])]
 ```
 
 ## Development
