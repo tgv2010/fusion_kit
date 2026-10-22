@@ -14,3 +14,14 @@ def test_track_1d_example():
         settled = tr["history"][5:]
         assert sum(settled) / len(settled) >= 0.6
         assert abs(tr["kf"].x - truth) < 1.0      # settled sigma is ~0.2 m
+
+
+def test_multi_target_2d_example():
+    import numpy as np
+    run = runpy.run_path(str(EXAMPLES / "multi_target_2d.py"))["run"]
+    for seed in range(3):
+        _, real, truth = run(seed=seed)
+        assert len(real) == 3
+        ends = np.array([tr.positions[-1] for tr in real])
+        for p in truth:                              # every target has a track ending near it
+            assert np.min(np.linalg.norm(ends - p, axis=1)) < 1.0

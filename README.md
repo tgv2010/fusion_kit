@@ -1,59 +1,87 @@
 # fusion_kit
 
-Reusable, tested building blocks for sensor fusion and computer vision. Each
-module comes from a solved puzzle in `../coding_exercise`.
+Reusable, tested building blocks for sensor fusion and computer vision. The
+core modules come from solved puzzles in `../coding_exercise`; the rest were
+added so a full tracker can be assembled off the shelf.
 
-| Module | Puzzle | What it does |
+## I need to...
+
+| Task | Reach for |
+|---|---|
+| Track several moving targets | `tracking.TrackManager` + `kalman.ConstantVelocity` ([example](examples/multi_target_2d.py)) |
+| Smooth one noisy, steady value | `kalman.Kalman1D` |
+| Track with radar (range/bearing/Doppler) or camera bearings | `kalman.ExtendedKalmanFilter` + `models.range_bearing` / `models.bearing_only` |
+| Fuse two sensors into one track | `update(z, H=..., R=...)` (linear) or `update(z, sensor=...)` (EKF) |
+| Turn a 2D lidar sweep into detections | `segment.segment_scan` + `segment.beam_gap_rule` |
+| Turn a 3D point cloud into detections | `segment.euclidean_clusters` |
+| Turn a camera mask into detections | `blobs.find_blobs` |
+| Match detections to tracks | `association.associate` (Hungarian or greedy; Mahalanobis or IoU cost) |
+| Confirm a track / debounce detections | `windows.MofN` |
+| Get x/y noise from a range/angle sensor | `transforms.polar_to_cartesian_cov` |
+| Draw a gate or covariance ellipse | `transforms.covariance_ellipse` |
+
+Each module's docstring opens with what it's for, what every knob means, and a quick-reference call pattern.
+
+## Modules
+
+| Module | Source | What it does |
 |---|---|---|
-| `blobs` | number of islands | Find connected blobs in a 2D grid or mask (4- or 8-connected) |
-| `clusters` | track merge | Merge "same object" detection pairs into objects (union-find) |
-| `gating` | merge intervals / gating | Group (center, ±uncertainty) tracks whose gates overlap; plain interval merge |
-| `windows` | M-of-N | Confirm a detection when m of the last n scans hit (batch or streaming) |
-| `kalman` | 1D Kalman (+ N-D, not from a puzzle) | `Kalman1D` smooths a steady value; `ConstantVelocity` tracks a moving position in 1D/2D/3D; `KalmanFilter` takes any F, H, Q, R. `gate()` / `distance()` say whether a measurement belongs to the track |
+| `blobs` | puzzle: number of islands | Connected blobs in a 2D grid or mask (4- or 8-connected) |
+| `clusters` | puzzle: track merge | Merge "same object" pairs into objects (union-find) |
+| `gating` | puzzle: merge intervals / gating | Group (center, ±uncertainty) tracks whose gates overlap |
+| `windows` | puzzle: M-of-N | Confirm when m of the last n scans hit (batch or streaming) |
+| `kalman` | puzzle: 1D Kalman; rest added | `Kalman1D`, `KalmanFilter` (any F, H, Q, R), `ConstantVelocity` (1D/2D/3D), `ExtendedKalmanFilter`. Per-measurement `R`, per-sensor `H`/`sensor`, `distance()` / `gate()` |
+| `models` | added | Motion and sensor models for the EKF: constant velocity, position, range/bearing(/Doppler), bearing-only |
+| `association` | added | One-to-one track/detection matching with gating; Mahalanobis and IoU costs |
+| `tracking` | added | `TrackManager`: predict, associate, update, birth, M-of-N confirm, coast, delete; track metrics |
+| `transforms` | added | Polar/spherical to Cartesian with noise propagation, covariance ellipses, angle wrapping, numerical Jacobians |
+| `segment` | added | Scan segmentation for spinning sensors, Euclidean clustering for point clouds |
 
 ## Usage
 
 ```python
-from fusion_kit.blobs import count_blobs, find_blobs
-from fusion_kit.clusters import cluster, count_clusters
-from fusion_kit.gating import gate_tracks, merge_intervals
-from fusion_kit.windows import MofN, m_of_n
 from fusion_kit.kalman import ConstantVelocity, Kalman1D
+from fusion_kit.tracking import TrackManager
 
-count_blobs(mask, connectivity=8, is_foreground=lambda v: v >= 128)
-cluster(6, [[4, 0], [2, 5]])   # [{0, 4}, {1}, {2, 5}, {3}]
-gate_tracks([(10, 1), (2, 1), (3, 0.5)])
-# [Group(lo=1, hi=3.5, members=[1, 2]), Group(lo=9, hi=11, members=[0])]
-m_of_n([1, 1, 0, 1, 0, 0, 1, 1], m=3, n=5)
-# [False, False, False, True, True, False, False, True]
-kf = Kalman1D(z0=10.2, r=0.25, q=0.01)   # r, q are variances
-kf.step(9.8)                              # -> (x, P); step(None) for a missed scan
-
-cv = ConstantVelocity(z0=[0, 0], r=0.25, q=0.1, dt=0.1)   # 2D position track
-cv.step([0.1, 0.2])                       # step(z, dt=...) if scans are irregular
+# One target, 2D position sensor
+cv = ConstantVelocity(z0=[0, 0], r=0.25, q=0.1, dt=0.1)   # r, q are variances
+cv.step([0.1, 0.2])                       # predict + update; step(None) for a missed scan
 cv.position, cv.velocity
 cv.distance([0.3, 0.4]) <= 3              # does this measurement belong to the track?
+
+# Many targets
+tm = TrackManager(lambda z, R: ConstantVelocity(z, r=R if R is not None else 0.04,
+                                                q=1.0, dt=0.1, speed_std=2.0))
+for t, detections in scans:
+    tm.step(t, detections)                # optional: R=[one covariance per detection]
+confirmed = [tr for tr in tm.all_tracks() if tr.confirmed]
+
+# Radar with an EKF
+from fusion_kit.kalman import ExtendedKalmanFilter
+from fusion_kit.models import constant_velocity, initial_state, range_bearing
+from fusion_kit.transforms import polar_to_cartesian_cov, polar_to_xy
+
+xy = polar_to_xy(r0, th0)
+x0, P0 = initial_state(xy, polar_to_cartesian_cov(r0, th0, 0.1, 0.01), speed_std=5.0)
+ekf = ExtendedKalmanFilter(x0, P0, constant_velocity(2, q=1.0), range_bearing(0.1, 0.01), dt=0.1)
+ekf.step([r, th])
 ```
 
-## Putting it together
+## Examples
 
-[examples/track_1d.py](examples/track_1d.py) tracks two targets with one noisy sensor. Each scan it:
+Both run as tests, so they stay working.
 
-1. **kalman**: `predict()` every track, then `gate()` gives the window the next hit should land in.
-2. **gating**: `gate_tracks(gates)` flags tracks whose windows overlap, where one measurement could belong to either.
-3. **kalman**: `update(z)` each track with the nearest measurement inside its window.
-4. **windows**: an `MofN(3, 5)` per track turns hit/miss into confirmed / not confirmed.
+- [examples/multi_target_2d.py](examples/multi_target_2d.py): three targets (two crossing), clutter and misses from a range/bearing sensor, using `TrackManager`, `ConstantVelocity` and per-detection polar noise.
+- [examples/track_1d.py](examples/track_1d.py): the puzzle modules wired by hand: `Kalman1D` → `gate()` → `gating.gate_tracks` → update → `MofN`.
 
 ```sh
-uv run python examples/track_1d.py
+uv run python examples/multi_target_2d.py
 ```
-
-Each module's docstring explains its knobs (what r, q, k, m, n, tol mean and how to pick them).
 
 ## Development
 
 ```sh
-uv sync          # set up the environment
+uv sync          # set up the environment (numpy, scipy)
 uv run pytest    # run all tests
 ```
 
@@ -62,4 +90,4 @@ uv run pytest    # run all tests
 1. Copy the final solution into `src/fusion_kit/<module>.py`. Remove the debug prints and add docstrings.
 2. Move the puzzle's test cases into `tests/test_<module>.py` and add edge cases
    (empty input, bad input, large input).
-3. Run `uv run pytest`, then add the module to the table above.
+3. Run `uv run pytest`, then add the module to the tables above.

@@ -5,6 +5,7 @@ description = "Reusable, tested building blocks for sensor fusion and computer v
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=2.2.6",
+    "scipy>=1.15.3",
 ]
 
 [dependency-groups]

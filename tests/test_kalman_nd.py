@@ -217,3 +217,50 @@ def test_cv_uncertainty_is_honest():
         e = np.array([p, v]) - kf.x
         scores.append(e @ np.linalg.solve(kf.P, e))
     assert 1.72 < np.mean(scores) < 2.28
+
+
+# --- Per-measurement noise and sensor overrides ---
+
+def test_kalman1d_r_override():
+    kf = Kalman1D(10, r=1, q=0)
+    kf.update(12, r=3)
+    assert kf.K == pytest.approx(1 / 4)
+    assert kf.gate(r=8) == pytest.approx((10.5, 3 * math.sqrt(0.75 + 8)))
+    with pytest.raises(ValueError):
+        kf.update(12, r=0)
+
+
+def test_noisier_measurement_moves_estimate_less():
+    a = ConstantVelocity([0.0, 0.0], r=0.1, q=0.1)
+    b = ConstantVelocity([0.0, 0.0], r=0.1, q=0.1)
+    a.step([1.0, 0.0])
+    b.step([1.0, 0.0], R=np.eye(2) * 10)
+    assert b.position[0] < a.position[0]
+
+
+def test_distance_with_r_override():
+    kf = scalar_kf(10, r=1, q=0)
+    assert kf.distance(12, R=3) == pytest.approx(2 / math.sqrt(1 + 3))
+
+
+def test_anisotropic_r_matrix():
+    R = np.diag([0.01, 1.0])
+    kf = ConstantVelocity([0.0, 0.0], r=R, q=0.1)
+    assert kf.R == pytest.approx(R)
+    assert kf.P[:2, :2] == pytest.approx(R)
+
+
+def test_second_sensor_measuring_x_only():
+    kf = ConstantVelocity([0.0, 0.0], r=1.0, q=0.1)
+    kf.predict()
+    var_y = kf.P[1, 1]
+    kf.update([0.5], H=[[1, 0, 0, 0]], R=[[0.01]])
+    assert kf.P[0, 0] < 0.02
+    assert kf.P[1, 1] == pytest.approx(var_y)      # x and y independent here
+    with pytest.raises(ValueError):
+        kf.update([0.5], H=[[1, 0, 0, 0]])         # 1-row H needs its own R
+
+
+def test_fixed_f_filter_rejects_dt():
+    with pytest.raises(ValueError):
+        scalar_kf(1, 1, 0).predict(dt=0.1)
