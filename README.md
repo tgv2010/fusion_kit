@@ -9,7 +9,7 @@ module comes from a solved puzzle in `../coding_exercise`.
 | `clusters` | track merge | Merge "same object" detection pairs into objects (union-find) |
 | `gating` | merge intervals / gating | Group (center, ±uncertainty) tracks whose gates overlap; plain interval merge |
 | `windows` | M-of-N | Confirm a detection when m of the last n scans hit (batch or streaming) |
-| `kalman` | 1D Kalman | Smooth a noisy, roughly constant value; `gate()` gives the window its next measurement should land in |
+| `kalman` | 1D Kalman (+ N-D, not from a puzzle) | `Kalman1D` smooths a steady value; `ConstantVelocity` tracks a moving position in 1D/2D/3D; `KalmanFilter` takes any F, H, Q, R. `gate()` / `distance()` say whether a measurement belongs to the track |
 
 ## Usage
 
@@ -18,7 +18,7 @@ from fusion_kit.blobs import count_blobs, find_blobs
 from fusion_kit.clusters import cluster, count_clusters
 from fusion_kit.gating import gate_tracks, merge_intervals
 from fusion_kit.windows import MofN, m_of_n
-from fusion_kit.kalman import Kalman1D
+from fusion_kit.kalman import ConstantVelocity, Kalman1D
 
 count_blobs(mask, connectivity=8, is_foreground=lambda v: v >= 128)
 cluster(6, [[4, 0], [2, 5]])   # [{0, 4}, {1}, {2, 5}, {3}]
@@ -28,6 +28,11 @@ m_of_n([1, 1, 0, 1, 0, 0, 1, 1], m=3, n=5)
 # [False, False, False, True, True, False, False, True]
 kf = Kalman1D(z0=10.2, r=0.25, q=0.01)   # r, q are variances
 kf.step(9.8)                              # -> (x, P); step(None) for a missed scan
+
+cv = ConstantVelocity(z0=[0, 0], r=0.25, q=0.1, dt=0.1)   # 2D position track
+cv.step([0.1, 0.2])                       # step(z, dt=...) if scans are irregular
+cv.position, cv.velocity
+cv.distance([0.3, 0.4]) <= 3              # does this measurement belong to the track?
 ```
 
 ## Putting it together

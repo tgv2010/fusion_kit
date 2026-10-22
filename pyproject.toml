@@ -3,7 +3,9 @@ name = "fusion-kit"
 version = "0.1.0"
 description = "Reusable, tested building blocks for sensor fusion and computer vision."
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "numpy>=2.2.6",
+]
 
 [dependency-groups]
 dev = ["pytest>=8"]
